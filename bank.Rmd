@@ -1,0 +1,332 @@
+---
+title: "Bank Telemarketing Customer Prediction Using Naive Bayes and Decision Tree"
+author: "Alfado Dhusi Sembiring"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: 
+        collapsed: true
+    number_sections: false
+    theme: journal
+    highlight: zenburn
+
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 14px;
+  }
+td {  /* Table  */
+  font-size: 8px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 20px;
+  color: DarkGreen;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: DarkRed;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+
+```{r setup, include=FALSE, warning=F, message=F}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r out.width="100%", fig.align='center', echo=FALSE}
+knitr::include_graphics("bank.jpg")
+```
+
+# Background
+
+Hello Everyone! At this page, I want to share about bank marketing in Portugal. I want to predict whether a customer would buy the product or not after receiving a call from the officer. I am going to use classification methods, which are naive bayes and decision tree algorithm. At the end, I will compare which methods produce the best results.        
+
+Let's get started!
+
+# Pre-Start 
+Packages loading
+```{r, message= F, warning= F}
+library(tidyverse)
+library(caret)
+library(car)
+library(ggplot2)
+library(MLmetrics)
+library(glue)
+library(plotly)
+library(GGally)
+library(e1071)
+library(partykit)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(ROCR)
+```
+
+# Data Preparation
+
+Data importing
+```{r}
+bank <- read.csv2("bank.csv")
+```
+
+Overview the data 
+
+```{r}
+glimpse(bank)
+```
+
+Here is the dataframe attribute information :
+Input variables:
+
+`age` (numeric)         
+`job` : type of job (categorical: 'admin.','blue-collar','entrepreneur','housemaid','management','retired','self-employed','services','student','technician','unemployed','unknown')       
+`marital` : marital status (categorical: 'divorced','married','single','unknown'; note: 'divorced' means divorced or widowed)        
+`education` (categorical: 'basic.4y','basic.6y','basic.9y','high.school','illiterate','professional.course','university.degree','unknown')      
+`default`: has credit in default? (categorical: 'no','yes','unknown')     
+`housing`: has housing loan? (categorical: 'no','yes','unknown')     
+`loan`: has personal loan? (categorical: 'no','yes','unknown')      
+`contact`: contact communication type (categorical: 'cellular','telephone')     
+`month:` last contact month of year (categorical: 'jan', 'feb', 'mar', ..., 'nov', 'dec')      
+`day_of_week`: last contact day of the week (categorical: 'mon','tue','wed','thu','fri')      
+`duration`: last contact duration, in seconds (numeric). Important note: this attribute highly affects the output target (e.g., if duration=0 then y='no'). Yet, the duration is not known before a call is performed. Also, after the end of the call y is obviously known. Thus, this input should only be included for benchmark purposes and should be discarded if the intention is to have a realistic predictive model.
+`campaign`: number of contacts performed during this campaign and for this client (numeric, includes last contact)       
+`pdays`: number of days that passed by after the client was last contacted from a previous campaign (numeric; 999 means client was not previously contacted)      
+`previous`: number of contacts performed before this campaign and for this client (numeric)      
+`poutcome`: outcome of the previous marketing campaign (categorical: 'failure','nonexistent','success')       
+`y` - has the client subscribed a term deposit? (binary: 'yes','no')
+
+Since all of data class is in correct form, now I will check fot the missing value 
+
+```{r}
+colSums(is.na(bank))
+```
+Great!There are no missing values in the data.
+
+```{r}
+head(bank)
+```
+
+# Modelling
+For this machine learning process, I will use Naive Bayes theorem and Decision Tree to predict **y** variable. 
+
+
+## Naive Bayes
+
+Since I am going to use Naive Bayes method, I have to make sure that all the predictors are factor type. I will try to convert the numeric variables to factor (some variables have to be grouped) and eliminate unused variables. 
+
+In order to make group in certain variables, I am trying to see ath the summary of the variables. I choose the 1st Quantile, Mean, and 3rd Quantile as the group category. 
+
+```{r}
+summary(bank$balance)
+summary(bank$duration)
+summary(bank$campaign)
+```
+
+```{r}
+bank_bayes<-bank %>% 
+  mutate (age = as.factor(ifelse(age < 30, "<30", 
+                       ifelse(age>=30 & age <= 50, "30-50", ">50")))) %>% 
+  mutate (balance = as.factor(ifelse(balance <69, "Low", 
+                                     ifelse(balance >= 69 & balance <= 1480, "Medium", "High")))) %>% 
+  mutate (duration = as.factor(ifelse(duration <104, "Short", 
+                                     ifelse(duration >= 104 & duration <= 264, "Medium", "Long")))) %>% 
+    mutate (campaign = as.factor(ifelse(campaign <=1, "Rarely", 
+                                     ifelse(campaign > 1 & campaign <= 2, "Medium", "Often")))) %>% 
+  select(-c(day, month, pdays))
+
+```
+
+Great! Now, I have model for Naive Bayes.  
+
+### Exploratory Data Analysis
+
+I want to show you the proportion of the **y** target variable using this
+
+```{r, warning=F, message= F}
+p1<- bank_bayes %>% 
+  group_by(y) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(mapping = aes(x = y, y= freq)) +
+  geom_col(position = "stack", aes(fill = y, text = glue("Yes : {y}
+                                                          Freq : {freq}")), width= NULL)+
+  theme_minimal()
+
+ggplotly(p1, tooltip = "text")  
+```
+
+From the chart above, it seems that the proportion is unbalanced. To make a better prediction, it is necessary to make the data balannce. I am going to use upsample for the process. 
+
+```{r}
+bayes_up <- upSample(x = bank_bayes %>% select(-y), 
+           y= bank_bayes$y,yname = "y")
+
+```
+Check for the proportion once again
+
+```{r, message= F, warning= F}
+p2<- bayes_up %>% 
+  group_by(y) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(mapping = aes(x = y, y= freq)) +
+  geom_col(position = "stack", aes(fill = y, text = glue("Yes : {y}
+                                                          Freq : {freq}")), width= NULL)+
+  theme_minimal()
+
+ggplotly(p2, tooltip = "text")  
+```
+
+Okay, the prportion has been balanced. 
+
+### Cross Validation
+Now, I have to split the data into train and test for cross validation  
+
+```{r}
+set.seed(123)
+index <- sample (nrow(bayes_up), nrow(bayes_up)*0.8)
+train_bayes <- bayes_up[index, ]
+test_bayes <- bayes_up [-index, ]
+```
+
+### Model Fitting
+
+Build the model using `naivebayes()` function
+```{r}
+model_bayes <- naiveBayes(x = train_bayes %>%  select(-y),
+                          y = train_bayes$y)
+
+```
+Done, model_bayes has been built
+
+### Model Evaluation 
+
+I will evaluate the model using `predict()` function. This function works for predicting the result by using data **test_bayes** 
+
+```{r}
+predict_bayes <- predict(object = model_bayes, newdata = test_bayes, type = "class")
+```
+
+After that, I can use `confusionmatrix()` function to see the accuracy
+
+```{r}
+confusionMatrix(data = predict_bayes, reference = test_bayes$y, positive = "yes")
+```
+
+### Model Improvement
+From the confusion matrix made, the accuracy of the data is quite good ~ 76%. However, the recall(sensitivity) of this case is important. Therefore, I have to reduce the value of false negative in order to increase the recall. To do that, I just have to decrease the threshold. 
+
+```{r}
+pred_imp <- predict(object = model_bayes, newdata = test_bayes, type = "raw")
+predict_bayes_imp <- pred_imp %>% 
+  as.data.frame() %>% 
+  mutate(tuning_pred = as.factor(ifelse(yes >= 0.4 , "yes", "no")))
+```
+
+
+
+Build another confusion matrix 
+```{r}
+confusionMatrix(data = predict_bayes_imp$tuning_pred, reference = test_bayes$y, positive = "yes")
+```
+After resize the threshold into 0.4, the number of false negative falls slightly from 218 to 147. This means that, the number of customers who are going to buy the product but predicted not to do so is decreased.     
+As we look at the accuracy, there is also a change, from 0.76 to 0.77. The model is getting better.  
+
+
+## Decision Tree
+Using decision tree is quite easy. I only have to use `rpart()` function to create the model and then plot it using `fancyRpartPlot()` function.      
+Since I already have made the model **bank**, now I can continue to build the model.     
+First upsample the data. 
+
+```{r}
+bank_tree_up <- upSample(x = bank %>% select(-y),
+                         y= bank$y, yname = "y")
+```
+```{r}
+index_tree <- sample(nrow(bank_tree_up), nrow(bank_tree_up)*0.8)
+train_tree <- bank_tree_up[index_tree, ]
+test_tree <- bank_tree_up [-index_tree, ]
+```
+
+
+```{r}
+set.seed(123)
+dtree <-rpart(formula = y~., data = train_tree, method = "class")
+fancyRpartPlot(dtree, sub = NULL)
+```
+A decision tree has several nodes that explain the probability of the predictors we use. 
+
+Each node shows:          
+   
+1. The predicted class (Yes/No).       
+2. The probability of Yes or No class .      
+3. The percentage of observations in the node.       
+4. The root and internal nodes also show the rules (variables with threshold/value) that will partition each observation.        
+
+### Model Evaluation 
+
+Same as before, I wil make prediction and confusion matrix to evaluate the model.
+
+```{r}
+pred_tree <- predict(object = dtree, newdata =test_tree, type = "class")
+```
+
+```{r}
+confusionMatrix(data = pred_tree, test_tree$y, positive = "yes")
+```
+
+From the matrix summary above, we can see that the decision tree model works well on the data. False negative number is low, hence recall(sensitivity) is something bigger than the previous model. This tree also gives much higher accuracy~80% which makes this model quite effective in creating prediction. 
+
+### ROC Curve
+The curve may give us a view whether we should tune the model or no by evaluate the true positive rate vs false postive rate. 
+
+```{r}
+pred_roc <- predict(object = dtree, newdata = test_tree, type = "prob")
+```
+
+```{r}
+pred_prob <- pred_roc[,2]
+bank_roc <- prediction(pred_prob, test_tree$y)
+bank_performance <- performance(bank_roc, "tpr", "fpr")
+```
+
+```{r}
+plot(bank_performance)
+abline(0,1, lty =2)
+```
+After analyzing the ROC curve, seems that I don't have to perform tree pruning on the decision tree since it has already got a normal-sized tree. 
+
+
+# Conclusion
+```{r}
+data.frame(Model = c("Naive Bayes","Naive Bayes Tuned" ,"Decision Tree"), 
+           Accuracy = c(0.76, 0.77, 0.79),
+           Sensitivity = c(0.73, 0.82, 0.89))
+```
+Based on the table above, it can be concluded that decision tree is the best model among the others. It has highest accuracy and sensitivity which have an important role in making decision and really interpretable. However, naive bayes can also be called a good model due its speed in processing data and easy to use. In order to raise the sensitivity and accuracy, all we need to do is just take control of threshold. 
+
+
+
+
+
+
+
+
+
+
+
+
+
